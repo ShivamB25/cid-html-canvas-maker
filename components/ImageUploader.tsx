@@ -4,21 +4,14 @@ import { useCallback, useState, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import CanvasDisplay from './CanvasDisplay'
 
-interface ImageUploaderProps {
-  onUploadSuccess?: (shareUrl: string) => void
-}
-
-export default function ImageUploader({ onUploadSuccess }: ImageUploaderProps) {
+export default function ImageUploader() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
-      setError(null)
       setImageFile(file)
       const url = URL.createObjectURL(file)
       setImageUrl(url)
@@ -36,60 +29,35 @@ export default function ImageUploader({ onUploadSuccess }: ImageUploaderProps) {
     multiple: false
   })
 
-  const handleUpload = async () => {
+  const handleDownload = () => {
     if (!canvasRef.current || !imageFile) return
 
-    setIsUploading(true)
-    setError(null)
+    // Convert canvas to blob and download
+    canvasRef.current.toBlob(
+      (blob) => {
+        if (!blob) return
 
-    try {
-      // Convert canvas to blob
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvasRef.current?.toBlob(
-          (blob) => {
-            if (blob) resolve(blob)
-            else reject(new Error('Failed to convert canvas to blob'))
-          },
-          imageFile.type,
-          0.95
-        )
-      })
-
-      // Create FormData and send to API
-      const formData = new FormData()
-      formData.append('file', blob, imageFile.name)
-      formData.append('mimeType', imageFile.type)
-      formData.append('originalSize', imageFile.size.toString())
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Upload failed')
-      }
-
-      const data = await response.json()
-      const shareUrl = `${window.location.origin}/${data.shareId}`
-
-      onUploadSuccess?.(shareUrl)
-    } catch (err) {
-      console.error('Upload error:', err)
-      setError(err instanceof Error ? err.message : 'Failed to upload image')
-    } finally {
-      setIsUploading(false)
-    }
+        // Create download link
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = imageFile.name || 'canvas-image.jpg'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      },
+      imageFile.type,
+      0.95
+    )
   }
 
   const handleReset = () => {
-    setImageFile(null)
-    setImageUrl(null)
-    setError(null)
     if (imageUrl) {
       URL.revokeObjectURL(imageUrl)
     }
+    setImageFile(null)
+    setImageUrl(null)
   }
 
   return (
@@ -137,26 +105,44 @@ export default function ImageUploader({ onUploadSuccess }: ImageUploaderProps) {
         <div className="space-y-4">
           <CanvasDisplay imageUrl={imageUrl} canvasRef={canvasRef} />
 
-          {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-              <p className="text-red-800 dark:text-red-200 text-sm">{error}</p>
-            </div>
-          )}
-
           <div className="flex gap-3 justify-center">
             <button
               onClick={handleReset}
-              className="px-6 py-2 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              disabled={isUploading}
+              className="px-6 py-2 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-2"
             >
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
+              </svg>
               Choose Different Image
             </button>
             <button
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              onClick={handleDownload}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
             >
-              {isUploading ? 'Uploading...' : 'Upload & Share'}
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Download Image
             </button>
           </div>
         </div>
