@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { prisma } from '@/lib/prisma'
+import { storage } from '@/lib/storage'
 import ImageViewer from './ImageViewer'
 import Link from 'next/link'
 
@@ -10,20 +10,15 @@ interface PageProps {
 export default async function SharedImagePage({ params }: PageProps) {
   const { imageId } = await params
 
-  // Fetch image from database
-  const image = await prisma.image.findUnique({
-    where: { shareId: imageId },
-  })
+  // Fetch image from in-memory storage
+  const image = storage.getImage(imageId)
 
   if (!image) {
     notFound()
   }
 
   // Increment view count
-  await prisma.image.update({
-    where: { shareId: imageId },
-    data: { views: { increment: 1 } },
-  })
+  storage.incrementViews(imageId)
 
   return (
     <main className="min-h-screen p-8">

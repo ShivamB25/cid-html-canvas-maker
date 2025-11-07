@@ -1,15 +1,16 @@
 # Canvas Image Uploader
 
-A modern web application for uploading images, displaying them on HTML Canvas, and generating shareable links. Built with Next.js 14, Vercel Blob Storage, and PostgreSQL.
+A lightweight web application for uploading images, displaying them on HTML Canvas, and generating temporary shareable links. Built with Next.js 14 and Vercel Blob Storage.
 
 ## Features
 
 - 🖼️ **Drag & Drop Upload** - Upload JPG, PNG, and WebP images with ease
 - 🎨 **HTML5 Canvas Display** - Images are rendered on HTML Canvas for optimal performance
 - 🔗 **Shareable Links** - Generate short, unique URLs for each uploaded image
-- 📊 **View Tracking** - Track how many times each image has been viewed
+- 📊 **View Tracking** - Track how many times each image has been viewed (session-based)
 - 🌙 **Dark Mode Support** - Automatic dark/light theme based on user preference
-- ⚡ **Fast & Scalable** - Powered by Vercel Blob Storage and PostgreSQL
+- ⚡ **Lightweight** - In-memory storage, no database required
+- 🚀 **Fast** - Powered by Vercel Blob Storage
 
 ## Tech Stack
 
@@ -17,15 +18,14 @@ A modern web application for uploading images, displaying them on HTML Canvas, a
 - **Runtime**: Bun
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4
-- **Storage**: Vercel Blob Storage
-- **Database**: Vercel Postgres + Prisma ORM
+- **Storage**: Vercel Blob Storage + In-Memory Cache
 - **File Upload**: react-dropzone
 - **ID Generation**: nanoid
 
 ## Prerequisites
 
 - Bun installed (v1.0.0 or higher)
-- Vercel account (for Blob Storage and Postgres)
+- Vercel account (for Blob Storage)
 
 ## Getting Started
 
@@ -35,31 +35,19 @@ A modern web application for uploading images, displaying them on HTML Canvas, a
 bun install
 ```
 
-### 2. Set up Vercel Postgres
+### 2. Set up Vercel Blob Storage
 
 1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
 2. Create a new project or select an existing one
 3. Go to the **Storage** tab
-4. Create a new **Postgres** database
-5. Copy the connection strings
-
-### 3. Set up Vercel Blob Storage
-
-1. In the same Vercel project
-2. Go to the **Storage** tab
-3. Create a new **Blob** store
+4. Create a new **Blob** store
 4. Copy the `BLOB_READ_WRITE_TOKEN`
 
-### 4. Configure environment variables
+### 3. Configure environment variables
 
-Update `.env.local` with your Vercel credentials:
+Update `.env.local` with your Vercel Blob token:
 
 ```env
-# Vercel Postgres Database URLs
-POSTGRES_URL="your-postgres-url-here"
-POSTGRES_PRISMA_URL="your-postgres-prisma-url-here"
-POSTGRES_URL_NON_POOLING="your-postgres-url-non-pooling-here"
-
 # Vercel Blob Storage
 BLOB_READ_WRITE_TOKEN="your-blob-token-here"
 
@@ -67,13 +55,7 @@ BLOB_READ_WRITE_TOKEN="your-blob-token-here"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
 
-### 5. Push database schema
-
-```bash
-bunx prisma db push
-```
-
-### 6. Run the development server
+### 4. Run the development server
 
 ```bash
 bun dev
@@ -93,26 +75,26 @@ cid-html-canvas-maker/
 │   ├── ImageUploader.tsx    # Upload + dropzone component
 │   ├── CanvasDisplay.tsx    # Canvas rendering component
 │   └── ShareLink.tsx        # Copy link component
-├── lib/
-│   └── prisma.ts            # Prisma client
-└── prisma/
-    └── schema.prisma        # Database schema
+└── lib/
+    └── storage.ts           # In-memory storage
 ```
 
-## Usage
+## How It Works
 
-1. **Upload**: Drag and drop an image or click to select
-2. **Preview**: View the image on HTML Canvas
-3. **Share**: Click "Upload & Share" to get a shareable link
-4. **View**: Share the link with anyone to view the image
+1. **Upload**: User drags/drops or selects an image (JPG/PNG/WebP)
+2. **Canvas**: Image displays on HTML Canvas with preview
+3. **Upload to Blob**: Canvas converts to Blob and uploads to Vercel Blob Storage
+4. **Generate Link**: Creates short ID (e.g., "abc123XY") and stores metadata in memory
+5. **Share**: User gets shareable link like `https://yourapp.com/abc123XY`
+6. **View**: Anyone with the link can view the image (view count tracked)
+
+**Note**: Shareable links are **temporary** - they exist as long as the server is running. When you restart the dev server, links will be cleared (images remain in Blob Storage).
 
 ## Scripts
 
 - `bun dev` - Start development server
 - `bun build` - Build for production
 - `bun start` - Start production server
-- `bunx prisma studio` - Open database GUI
-- `bunx prisma db push` - Push schema changes
 
 ## Deploy on Vercel
 

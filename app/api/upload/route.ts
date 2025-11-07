@@ -1,6 +1,6 @@
 import { put } from '@vercel/blob'
 import { nanoid } from 'nanoid'
-import { prisma } from '@/lib/prisma'
+import { storage } from '@/lib/storage'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
@@ -31,15 +31,14 @@ export async function POST(request: NextRequest) {
       addRandomSuffix: true,
     })
 
-    // Save metadata to database
-    const image = await prisma.image.create({
-      data: {
-        shareId,
-        blobUrl: blob.url,
-        filename,
-        mimeType,
-        fileSize: originalSize,
-      },
+    // Save metadata to in-memory storage
+    const image = storage.saveImage({
+      id: shareId,
+      shareId,
+      blobUrl: blob.url,
+      filename,
+      mimeType,
+      fileSize: originalSize,
     })
 
     return NextResponse.json({
