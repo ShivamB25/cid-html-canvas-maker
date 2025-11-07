@@ -15,6 +15,12 @@ export interface GenerateCanvasCodeOptions {
   colorBuckets?: number
   /** Box blur radius (in pixels) applied before quantization to reduce noise */
   blurRadius?: number
+  /** Generation mode: scanline merging or quadtree block compression */
+  mode?: 'scanline' | 'quadtree'
+  /** Maximum allowed color deviation inside a quadtree node before splitting */
+  quadtreeTolerance?: number
+  /** Minimum block size (in pixels) for quadtree recursion */
+  quadtreeMinSize?: number
 }
 
 export interface CanvasCodeResult {
@@ -29,7 +35,10 @@ const DEFAULT_OPTIONS: Required<GenerateCanvasCodeOptions> = {
   alphaThreshold: 0.01,
   alphaPrecision: 3,
   colorBuckets: 48,
-  blurRadius: 0
+  blurRadius: 0,
+  mode: 'scanline',
+  quadtreeTolerance: 18,
+  quadtreeMinSize: 2
 }
 
 export function generateCanvasCodeFromImageData(
@@ -37,21 +46,33 @@ export function generateCanvasCodeFromImageData(
   options: GenerateCanvasCodeOptions = {}
 ): CanvasCodeResult {
   const mergedOptions = { ...DEFAULT_OPTIONS, ...options }
-  const { alphaPrecision, alphaThreshold, colorBuckets, blurRadius } = mergedOptions
+  const {
+    alphaPrecision,
+    alphaThreshold,
+    colorBuckets,
+    blurRadius,
+    mode,
+    quadtreeTolerance,
+    quadtreeMinSize
+  } = mergedOptions
 
   const preparedData = preparePixelSource(imageData, blurRadius)
   const quantizationLut = buildQuantizationLut(colorBuckets)
+  const quantizedData = applyQuantization(preparedData, quantizationLut)
 
-  const rectangles = imageDataToRectangles(
-    preparedData,
-    imageData.width,
-    imageData.height,
-    {
-      alphaPrecision,
-      alphaThreshold,
-      quantizationLut
-    }
-  )
+  const rectangles =
+    mode === 'quadtree'
+      ? generateRectanglesQuadtree(quantizedData, imageData.width, imageData.height, {
+          alphaThreshold,
+          quadtreeTolerance,
+          quadtreeMinSize,
+          alphaPrecision
+        })
+      : generateRectanglesScanline(quantizedData, imageData.width, imageData.height, {
+          alphaPrecision,
+          alphaThreshold,
+          quantizationLut
+        })
 
   const publicRectangles: RectangleCommand[] = rectangles.map(
     ({ x, y, width, height, fillStyle }) => ({ x, y, width, height, fillStyle })
@@ -85,7 +106,7 @@ interface RectangleOptions {
   quantizationLut: Uint8Array
 }
 
-function imageDataToRectangles(
+function generateRectanglesScanline(
   data: Uint8ClampedArray,
   width: number,
   height: number,
@@ -289,4 +310,138 @@ function applyBoxBlur(
   }
 
   return result
+}
+
+function applyQuantization(data: Uint8ClampedArray, lut: Uint8Array): Uint8ClampedArray {
+  const result = new Uint8ClampedArray(data.length)
+  for (let i = 0; i < data.length; i += 4) {
+    result[i] = lut[data[i]]
+    result[i + 1] = lut[data[i + 1]]
+    result[i + 2] = lut[data[i + 2]]
+    result[i + 3] = data[i + 3]
+  }
+  return result
+}
+
+interface QuadtreeOptions {
+  alphaThreshold: number
+  quadtreeTolerance: number
+  quadtreeMinSize: number
+  alphaPrecision: number
+}
+
+function generateRectanglesQuadtree(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options: QuadtreeOptions
+): RectangleInternal[] {
+  const rectangles: RectangleInternal[] = []
+
+  const traverse = (x: number, y: number, w: number, h: number) => {
+    const stats = computeBlockStats(data, width, height, x, y, w, h)
+    if (stats.alphaAvg <= options.alphaThreshold) {
+      return
+    }
+
+    if (
+      (w <= options.quadtreeMinSize && h <= options.quadtreeMinSize) ||
+      stats.maxDeviation <= options.quadtreeTolerance
+    ) {
+      const roundedAlpha = Number(stats.alphaAvg.toFixed(options.alphaPrecision))
+      const fillStyle = `rgba(${stats.redAvg}, ${stats.greenAvg}, ${stats.blueAvg}, ${roundedAlpha})`
+      rectangles.push({ x, y, width: w, height: h, fillStyle, key: `${x}:${y}:${w}:${h}:${fillStyle}` })
+      return
+    }
+
+    const halfW = Math.max(options.quadtreeMinSize, Math.floor(w / 2))
+    const halfH = Math.max(options.quadtreeMinSize, Math.floor(h / 2))
+
+    if (halfW <= 0 || halfH <= 0) {
+      const roundedAlpha = Number(stats.alphaAvg.toFixed(options.alphaPrecision))
+      const fillStyle = `rgba(${stats.redAvg}, ${stats.greenAvg}, ${stats.blueAvg}, ${roundedAlpha})`
+      rectangles.push({ x, y, width: w, height: h, fillStyle, key: `${x}:${y}:${w}:${h}:${fillStyle}` })
+      return
+    }
+
+    traverse(x, y, halfW, halfH)
+    if (x + halfW < width) {
+      traverse(x + halfW, y, w - halfW, halfH)
+    }
+    if (y + halfH < height) {
+      traverse(x, y + halfH, halfW, h - halfH)
+    }
+    if (x + halfW < width && y + halfH < height) {
+      traverse(x + halfW, y + halfH, w - halfW, h - halfH)
+    }
+  }
+
+  traverse(0, 0, width, height)
+
+  return rectangles
+}
+
+interface BlockStats {
+  redAvg: number
+  greenAvg: number
+  blueAvg: number
+  alphaAvg: number
+  maxDeviation: number
+}
+
+function computeBlockStats(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  startX: number,
+  startY: number,
+  w: number,
+  h: number
+): BlockStats {
+  let rSum = 0
+  let gSum = 0
+  let bSum = 0
+  let aSum = 0
+  let maxDeviation = 0
+  const count = w * h
+
+  for (let y = startY; y < Math.min(height, startY + h); y++) {
+    for (let x = startX; x < Math.min(width, startX + w); x++) {
+      const index = (y * width + x) * 4
+      const red = data[index]
+      const green = data[index + 1]
+      const blue = data[index + 2]
+      const alpha = data[index + 3] / 255
+      rSum += red
+      gSum += green
+      bSum += blue
+      aSum += alpha
+    }
+  }
+
+  const redAvg = Math.round(rSum / count)
+  const greenAvg = Math.round(gSum / count)
+  const blueAvg = Math.round(bSum / count)
+  const alphaAvg = aSum / count
+
+  for (let y = startY; y < Math.min(height, startY + h); y++) {
+    for (let x = startX; x < Math.min(width, startX + w); x++) {
+      const index = (y * width + x) * 4
+      const deviation =
+        Math.abs(data[index] - redAvg) +
+        Math.abs(data[index + 1] - greenAvg) +
+        Math.abs(data[index + 2] - blueAvg)
+      if (deviation > maxDeviation) {
+        maxDeviation = deviation
+      }
+    }
+  }
+
+  return {
+    redAvg,
+    greenAvg,
+    blueAvg,
+    alphaAvg,
+    maxDeviation
+  }
 }
