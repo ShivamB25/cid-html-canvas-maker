@@ -1,22 +1,47 @@
 'use client'
 
-import { useCallback, useState, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import CanvasDisplay from './CanvasDisplay'
+import { generateCanvasCodeFromImageData } from '@/lib/canvas-code-generator'
+
+type GenerationStats = {
+  rectangles: number
+  width: number
+  height: number
+}
 
 export default function ImageUploader() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [generationStats, setGenerationStats] = useState<GenerationStats | null>(null)
+  const [generationError, setGenerationError] = useState<string | null>(null)
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false)
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const copyTimeoutRef = useRef<number | null>(null)
+
+  const resetGeneratedOutput = useCallback(() => {
+    setGeneratedCode(null)
+    setGenerationStats(null)
+    setGenerationError(null)
+    setCopyFeedback(null)
+    if (copyTimeoutRef.current) {
+      window.clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = null
+    }
+  }, [])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (file) {
+      resetGeneratedOutput()
       setImageFile(file)
       const url = URL.createObjectURL(file)
       setImageUrl(url)
     }
-  }, [])
+  }, [resetGeneratedOutput])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -58,7 +83,91 @@ export default function ImageUploader() {
     }
     setImageFile(null)
     setImageUrl(null)
+    resetGeneratedOutput()
   }
+
+  const handleGenerateCode = () => {
+    if (!canvasRef.current) {
+      setGenerationError('Canvas not ready yet, please wait for the image to load.')
+      return
+    }
+
+    try {
+      setIsGeneratingCode(true)
+      setGenerationError(null)
+      const ctx = canvasRef.current.getContext('2d')
+      if (!ctx) {
+        throw new Error('Unable to access Canvas 2D context.')
+      }
+
+      const { width, height } = canvasRef.current
+      if (!width || !height) {
+        throw new Error('Canvas is empty. Draw an image before generating code.')
+      }
+
+      const imageData = ctx.getImageData(0, 0, width, height)
+      const result = generateCanvasCodeFromImageData(imageData)
+      setGeneratedCode(result.code)
+      setGenerationStats({
+        rectangles: result.rectangleCount,
+        width: result.width,
+        height: result.height
+      })
+    } catch (error) {
+      console.error('Failed to generate canvas code', error)
+      const message = error instanceof Error ? error.message : 'Failed to generate Canvas code.'
+      setGenerationError(message)
+    } finally {
+      setIsGeneratingCode(false)
+    }
+  }
+
+  const handleCopyCode = async () => {
+    if (!generatedCode) return
+    try {
+      if (!navigator.clipboard) {
+        throw new Error('Clipboard API is not available in this browser.')
+      }
+      await navigator.clipboard.writeText(generatedCode)
+      setCopyFeedback('Code copied to clipboard')
+    } catch (error) {
+      console.error('Unable to copy code', error)
+      setCopyFeedback('Copy failed. Please select and copy manually.')
+    }
+
+    if (copyTimeoutRef.current) {
+      window.clearTimeout(copyTimeoutRef.current)
+    }
+    copyTimeoutRef.current = window.setTimeout(() => {
+      setCopyFeedback(null)
+      copyTimeoutRef.current = null
+    }, 2000)
+  }
+
+  const handleDownloadCode = () => {
+    if (!generatedCode) return
+    const baseName = imageFile?.name?.replace(/\.[^/.]+$/, '') || 'canvas-image'
+    const blob = new Blob([generatedCode], { type: 'text/javascript' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${baseName}-canvas-code.js`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current)
+      }
+      if (imageUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [imageUrl])
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -105,7 +214,7 @@ export default function ImageUploader() {
         <div className="space-y-4">
           <CanvasDisplay imageUrl={imageUrl} canvasRef={canvasRef} />
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex flex-wrap gap-3 justify-center">
             <button
               onClick={handleReset}
               className="px-6 py-2 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-2"
@@ -144,7 +253,70 @@ export default function ImageUploader() {
               </svg>
               Download Image
             </button>
+            <button
+              onClick={handleGenerateCode}
+              disabled={isGeneratingCode}
+              className={`px-6 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+                isGeneratingCode
+                  ? 'bg-purple-400 text-white cursor-wait'
+                  : 'bg-purple-600 text-white hover:bg-purple-700'
+              }`}
+            >
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7l-4-4-4 4m4-4v18"
+                />
+              </svg>
+              {isGeneratingCode ? 'Generating…' : 'Generate Canvas Code'}
+            </button>
           </div>
+
+          {generationError && (
+            <p className="text-center text-sm text-red-600 dark:text-red-400">
+              {generationError}
+            </p>
+          )}
+
+          {generatedCode && generationStats && (
+            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm text-gray-700 dark:text-gray-300">
+                  <p>
+                    Canvas size: {generationStats.width} × {generationStats.height}px
+                  </p>
+                  <p>Rectangles used: {generationStats.rectangles}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleCopyCode}
+                    className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-700 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    Copy code
+                  </button>
+                  <button
+                    onClick={handleDownloadCode}
+                    className="px-4 py-2 rounded-md bg-gray-900 text-white text-sm hover:bg-gray-800"
+                  >
+                    Download JS
+                  </button>
+                </div>
+              </div>
+              {copyFeedback && (
+                <p className="text-xs text-green-600 dark:text-green-400">{copyFeedback}</p>
+              )}
+              <pre className="max-h-96 overflow-auto rounded-md bg-gray-900 text-green-200 text-xs p-4">
+                <code>{generatedCode}</code>
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>
