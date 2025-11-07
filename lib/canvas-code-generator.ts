@@ -11,6 +11,10 @@ export interface GenerateCanvasCodeOptions {
   alphaThreshold?: number
   /** Decimal precision for the generated alpha channel */
   alphaPrecision?: number
+  /** Number of color buckets per channel used for quantization */
+  colorBuckets?: number
+  /** Box blur radius (in pixels) applied before quantization to reduce noise */
+  blurRadius?: number
 }
 
 export interface CanvasCodeResult {
@@ -23,18 +27,31 @@ export interface CanvasCodeResult {
 
 const DEFAULT_OPTIONS: Required<GenerateCanvasCodeOptions> = {
   alphaThreshold: 0.01,
-  alphaPrecision: 3
+  alphaPrecision: 3,
+  colorBuckets: 48,
+  blurRadius: 0
 }
 
 export function generateCanvasCodeFromImageData(
   imageData: ImageData,
   options: GenerateCanvasCodeOptions = {}
 ): CanvasCodeResult {
-  const { alphaPrecision, alphaThreshold } = { ...DEFAULT_OPTIONS, ...options }
-  const rectangles = imageDataToRectangles(imageData, {
-    alphaPrecision,
-    alphaThreshold
-  })
+  const mergedOptions = { ...DEFAULT_OPTIONS, ...options }
+  const { alphaPrecision, alphaThreshold, colorBuckets, blurRadius } = mergedOptions
+
+  const preparedData = preparePixelSource(imageData, blurRadius)
+  const quantizationLut = buildQuantizationLut(colorBuckets)
+
+  const rectangles = imageDataToRectangles(
+    preparedData,
+    imageData.width,
+    imageData.height,
+    {
+      alphaPrecision,
+      alphaThreshold,
+      quantizationLut
+    }
+  )
 
   const publicRectangles: RectangleCommand[] = rectangles.map(
     ({ x, y, width, height, fillStyle }) => ({ x, y, width, height, fillStyle })
@@ -65,23 +82,20 @@ interface RectangleInternal extends RectangleCommand {
 interface RectangleOptions {
   alphaThreshold: number
   alphaPrecision: number
+  quantizationLut: Uint8Array
 }
 
 function imageDataToRectangles(
-  imageData: ImageData,
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
   options: RectangleOptions
 ): RectangleInternal[] {
-  const { width, height, data } = imageData
   const rectangles: RectangleInternal[] = []
   let previousRow = new Map<string, RectangleInternal>()
 
   for (let y = 0; y < height; y++) {
-    const segments = collectRowSegments({
-      data,
-      width,
-      y,
-      options
-    })
+    const segments = collectRowSegments({ data, width, y, options })
 
     const currentRow = new Map<string, RectangleInternal>()
 
@@ -136,9 +150,9 @@ function collectRowSegments({
 
   for (let x = 0; x < width; x++) {
     const index = (y * width + x) * 4
-    const red = data[index]
-    const green = data[index + 1]
-    const blue = data[index + 2]
+    const red = options.quantizationLut[data[index]]
+    const green = options.quantizationLut[data[index + 1]]
+    const blue = options.quantizationLut[data[index + 2]]
     const alpha = data[index + 3] / 255
 
     if (alpha <= options.alphaThreshold) {
@@ -198,4 +212,81 @@ function rectanglesToCode(
   }
 
   return lines.join('\n')
+}
+
+function preparePixelSource(imageData: ImageData, blurRadius: number): Uint8ClampedArray {
+  const source = new Uint8ClampedArray(imageData.data)
+  if (blurRadius <= 0) {
+    return source
+  }
+  return applyBoxBlur(source, imageData.width, imageData.height, blurRadius)
+}
+
+function buildQuantizationLut(bucketCount: number): Uint8Array {
+  const clamped = Math.min(256, Math.max(2, Math.round(bucketCount)))
+  const lut = new Uint8Array(256)
+  const step = 255 / (clamped - 1)
+  for (let value = 0; value < 256; value++) {
+    lut[value] = Math.max(0, Math.min(255, Math.round(Math.round(value / step) * step)))
+  }
+  return lut
+}
+
+function applyBoxBlur(
+  source: Uint8ClampedArray,
+  width: number,
+  height: number,
+  radius: number
+): Uint8ClampedArray {
+  const temp = new Uint8ClampedArray(source.length)
+  const result = new Uint8ClampedArray(source.length)
+  const kernelSize = radius * 2 + 1
+
+  // Horizontal pass
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let rSum = 0
+      let gSum = 0
+      let bSum = 0
+      let aSum = 0
+      for (let k = -radius; k <= radius; k++) {
+        const clampedX = Math.min(width - 1, Math.max(0, x + k))
+        const index = (y * width + clampedX) * 4
+        rSum += source[index]
+        gSum += source[index + 1]
+        bSum += source[index + 2]
+        aSum += source[index + 3]
+      }
+      const targetIndex = (y * width + x) * 4
+      temp[targetIndex] = rSum / kernelSize
+      temp[targetIndex + 1] = gSum / kernelSize
+      temp[targetIndex + 2] = bSum / kernelSize
+      temp[targetIndex + 3] = aSum / kernelSize
+    }
+  }
+
+  // Vertical pass
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let rSum = 0
+      let gSum = 0
+      let bSum = 0
+      let aSum = 0
+      for (let k = -radius; k <= radius; k++) {
+        const clampedY = Math.min(height - 1, Math.max(0, y + k))
+        const index = (clampedY * width + x) * 4
+        rSum += temp[index]
+        gSum += temp[index + 1]
+        bSum += temp[index + 2]
+        aSum += temp[index + 3]
+      }
+      const targetIndex = (y * width + x) * 4
+      result[targetIndex] = rSum / kernelSize
+      result[targetIndex + 1] = gSum / kernelSize
+      result[targetIndex + 2] = bSum / kernelSize
+      result[targetIndex + 3] = aSum / kernelSize
+    }
+  }
+
+  return result
 }

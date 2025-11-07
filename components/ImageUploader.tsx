@@ -1,10 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, ChangeEvent } from 'react'
 import { useDropzone } from 'react-dropzone'
 import CanvasDisplay from './CanvasDisplay'
 import { generateCanvasCodeFromImageData } from '@/lib/canvas-code-generator'
 import type { RectangleCommand } from '@/lib/canvas-code-generator'
+
+type GeneratorSettings = {
+  colorBuckets: number
+  blurRadius: number
+  alphaThreshold: number
+}
 
 type GenerationStats = {
   rectangles: number
@@ -21,6 +27,12 @@ export default function ImageUploader() {
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [isGeneratingCode, setIsGeneratingCode] = useState(false)
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
+  const [generatorSettings, setGeneratorSettings] = useState<GeneratorSettings>({
+    colorBuckets: 96,
+    blurRadius: 1,
+    alphaThreshold: 0.02
+  })
+  const [appliedSettings, setAppliedSettings] = useState<GeneratorSettings | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const copyTimeoutRef = useRef<number | null>(null)
@@ -31,6 +43,7 @@ export default function ImageUploader() {
     setGeneratedRectangles(null)
     setGenerationError(null)
     setCopyFeedback(null)
+    setAppliedSettings(null)
     if (copyTimeoutRef.current) {
       window.clearTimeout(copyTimeoutRef.current)
       copyTimeoutRef.current = null
@@ -110,7 +123,11 @@ export default function ImageUploader() {
       }
 
       const imageData = ctx.getImageData(0, 0, width, height)
-      const result = generateCanvasCodeFromImageData(imageData)
+      const result = generateCanvasCodeFromImageData(imageData, {
+        colorBuckets: generatorSettings.colorBuckets,
+        blurRadius: generatorSettings.blurRadius,
+        alphaThreshold: generatorSettings.alphaThreshold
+      })
       setGeneratedCode(result.code)
       setGeneratedRectangles(result.rectangles)
       setGenerationStats({
@@ -118,6 +135,7 @@ export default function ImageUploader() {
         width: result.width,
         height: result.height
       })
+      setAppliedSettings({ ...generatorSettings })
     } catch (error) {
       console.error('Failed to generate canvas code', error)
       const message = error instanceof Error ? error.message : 'Failed to generate Canvas code.'
@@ -190,6 +208,19 @@ export default function ImageUploader() {
     }
   }, [generatedRectangles, generationStats])
 
+  const handleSettingChange = (key: keyof GeneratorSettings) => (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = key === 'alphaThreshold'
+      ? parseFloat(event.target.value)
+      : parseInt(event.target.value, 10)
+
+    setGeneratorSettings((prev) => ({
+      ...prev,
+      [key]: value
+    }))
+  }
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       {!imageUrl ? (
@@ -234,6 +265,70 @@ export default function ImageUploader() {
       ) : (
         <div className="space-y-4">
           <CanvasDisplay imageUrl={imageUrl} canvasRef={canvasRef} />
+
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-4">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="font-medium text-gray-900 dark:text-gray-50">Code generation settings</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Adjust these knobs to balance fidelity vs output size, then click “Generate Canvas Code”.
+                </p>
+              </div>
+              {appliedSettings && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Last applied: {appliedSettings.colorBuckets} buckets · blur {appliedSettings.blurRadius}px · alpha ≥{' '}
+                  {appliedSettings.alphaThreshold.toFixed(2)}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-200">
+                <span>Color buckets per channel: {generatorSettings.colorBuckets}</span>
+                <input
+                  type="range"
+                  min={4}
+                  max={256}
+                  step={4}
+                  value={generatorSettings.colorBuckets}
+                  onChange={handleSettingChange('colorBuckets')}
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Lower bucket counts merge more colors for fewer rectangles; higher counts preserve subtle gradients.
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-200">
+                <span>Noise reduction (blur radius): {generatorSettings.blurRadius}px</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={3}
+                  step={1}
+                  value={generatorSettings.blurRadius}
+                  onChange={handleSettingChange('blurRadius')}
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Adds a lightweight box blur before sampling to smooth paper grain or compression artifacts.
+                </span>
+              </label>
+
+              <label className="flex flex-col gap-1 text-sm text-gray-700 dark:text-gray-200">
+                <span>Alpha threshold: {generatorSettings.alphaThreshold.toFixed(2)}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={0.2}
+                  step={0.01}
+                  value={generatorSettings.alphaThreshold}
+                  onChange={handleSettingChange('alphaThreshold')}
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Pixels below this opacity are skipped entirely—handy for faint highlights or background cleanup.
+                </span>
+              </label>
+            </div>
+          </div>
 
           <div className="flex flex-wrap gap-3 justify-center">
             <button
@@ -314,6 +409,12 @@ export default function ImageUploader() {
                     Canvas size: {generationStats.width} × {generationStats.height}px
                   </p>
                   <p>Rectangles used: {generationStats.rectangles}</p>
+                  {appliedSettings && (
+                    <p>
+                      Settings: {appliedSettings.colorBuckets} buckets · blur {appliedSettings.blurRadius}px · alpha ≥{' '}
+                      {appliedSettings.alphaThreshold.toFixed(2)}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
