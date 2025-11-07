@@ -1,81 +1,28 @@
 # Canvas Image Viewer
 
-A lightweight, client-side web application for viewing images on HTML5 Canvas and downloading them to your device. Built with Next.js 14.
+A lightweight, client-side web application for viewing images on HTML5 Canvas and downloading them to your device.
 
 ## Features
 
-- 🖼️ **Drag & Drop Upload** - Upload JPG, PNG, and WebP images with ease
-- 🎨 **HTML5 Canvas Display** - Images are rendered on HTML Canvas for optimal performance
-- 💾 **Download to Device** - Save canvas images directly to your device
-- 🌙 **Dark Mode Support** - Automatic dark/light theme based on user preference
-- ⚡ **Client-Side Only** - No server uploads, all processing happens in your browser
-- 🚀 **Fast** - Instant preview and download
+- 🖼️ Drag & drop upload for JPG, PNG, and WebP images
+- 🎨 HTML5 Canvas rendering
+- 💾 Download canvas images directly to your device
+- 🌙 Dark mode support
+- ⚡ Client-side only - no server uploads
 
-## Tech Stack
-
-- **Framework**: Next.js 14 (App Router)
-- **Runtime**: Bun
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS v4
-- **File Upload**: react-dropzone
-- **Canvas**: HTML5 Canvas API
-
-## Prerequisites
-
-- Bun installed (v1.0.0 or higher)
-
-## Getting Started
-
-### 1. Install dependencies
+## Quick Start
 
 ```bash
 bun install
-```
-
-### 2. Run the development server
-
-```bash
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000)
 
-## Project Structure
+## Tech Stack
 
-```
-cid-html-canvas-maker/
-├── app/
-│   ├── [imageId]/           # Legacy route (not used)
-│   ├── api/upload/          # Legacy API (not used)
-│   └── page.tsx             # Main viewer page
-└── components/
-    ├── ImageUploader.tsx    # Upload + dropzone component
-    └── CanvasDisplay.tsx    # Canvas rendering component
-```
-
-## How It Works
-
-1. **Upload**: User drags/drops or selects an image (JPG/PNG/WebP)
-2. **Canvas**: Image displays instantly on HTML5 Canvas with preview
-3. **Download**: User can download the canvas image to their device
-4. **Client-Side**: All processing happens in the browser - no server uploads
-
-**Note**: This is a client-side only application. Images are processed locally in your browser and never uploaded to any server.
-
-## Scripts
-
-- `bun dev` - Start development server
-- `bun build` - Build for production
-- `bun start` - Start production server
-
-## Deploy
-
-1. Push your code to GitHub
-2. Import the repository to Vercel (or any static hosting)
-3. Deploy!
-
-No environment variables or backend setup required - it's purely client-side.
+Next.js 14 • TypeScript • Tailwind CSS v4 • HTML5 Canvas • react-dropzone
 
 ---
 
-Built with ❤️ using Next.js and Vercel
+Built with Next.js
