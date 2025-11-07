@@ -4,7 +4,6 @@ export interface RectangleCommand {
   width: number
   height: number
   fillStyle: string
-  key: string
 }
 
 export interface GenerateCanvasCodeOptions {
@@ -19,6 +18,7 @@ export interface CanvasCodeResult {
   rectangleCount: number
   width: number
   height: number
+  rectangles: RectangleCommand[]
 }
 
 const DEFAULT_OPTIONS: Required<GenerateCanvasCodeOptions> = {
@@ -36,13 +36,18 @@ export function generateCanvasCodeFromImageData(
     alphaThreshold
   })
 
-  const code = rectanglesToCode(rectangles, imageData.width, imageData.height)
+  const publicRectangles: RectangleCommand[] = rectangles.map(
+    ({ x, y, width, height, fillStyle }) => ({ x, y, width, height, fillStyle })
+  )
+
+  const code = rectanglesToCode(publicRectangles, imageData.width, imageData.height)
 
   return {
     code,
-    rectangleCount: rectangles.length,
+    rectangleCount: publicRectangles.length,
     width: imageData.width,
-    height: imageData.height
+    height: imageData.height,
+    rectangles: publicRectangles
   }
 }
 
@@ -53,12 +58,7 @@ interface RowSegment {
   key: string
 }
 
-interface RectangleInternal {
-  x: number
-  y: number
-  width: number
-  height: number
-  fillStyle: string
+interface RectangleInternal extends RectangleCommand {
   key: string
 }
 
@@ -174,7 +174,7 @@ function collectRowSegments({
 }
 
 function rectanglesToCode(
-  rectangles: RectangleInternal[],
+  rectangles: RectangleCommand[],
   width: number,
   height: number
 ): string {

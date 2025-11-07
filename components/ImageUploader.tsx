@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import CanvasDisplay from './CanvasDisplay'
 import { generateCanvasCodeFromImageData } from '@/lib/canvas-code-generator'
+import type { RectangleCommand } from '@/lib/canvas-code-generator'
 
 type GenerationStats = {
   rectangles: number
@@ -15,16 +16,19 @@ export default function ImageUploader() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [generatedRectangles, setGeneratedRectangles] = useState<RectangleCommand[] | null>(null)
   const [generationStats, setGenerationStats] = useState<GenerationStats | null>(null)
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [isGeneratingCode, setIsGeneratingCode] = useState(false)
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const copyTimeoutRef = useRef<number | null>(null)
 
   const resetGeneratedOutput = useCallback(() => {
     setGeneratedCode(null)
     setGenerationStats(null)
+    setGeneratedRectangles(null)
     setGenerationError(null)
     setCopyFeedback(null)
     if (copyTimeoutRef.current) {
@@ -108,6 +112,7 @@ export default function ImageUploader() {
       const imageData = ctx.getImageData(0, 0, width, height)
       const result = generateCanvasCodeFromImageData(imageData)
       setGeneratedCode(result.code)
+      setGeneratedRectangles(result.rectangles)
       setGenerationStats({
         rectangles: result.rectangleCount,
         width: result.width,
@@ -168,6 +173,22 @@ export default function ImageUploader() {
       }
     }
   }, [imageUrl])
+
+  useEffect(() => {
+    if (!previewCanvasRef.current || !generatedRectangles || !generationStats) return
+    const canvas = previewCanvasRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    canvas.width = generationStats.width
+    canvas.height = generationStats.height
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    for (const rect of generatedRectangles) {
+      ctx.fillStyle = rect.fillStyle
+      ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+    }
+  }, [generatedRectangles, generationStats])
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -312,9 +333,24 @@ export default function ImageUploader() {
               {copyFeedback && (
                 <p className="text-xs text-green-600 dark:text-green-400">{copyFeedback}</p>
               )}
-              <pre className="max-h-96 overflow-auto rounded-md bg-gray-900 text-green-200 text-xs p-4">
-                <code>{generatedCode}</code>
-              </pre>
+              <div className="grid gap-4 md:grid-cols-2">
+                <pre className="max-h-96 overflow-auto rounded-md bg-gray-900 text-green-200 text-xs p-4">
+                  <code>{generatedCode}</code>
+                </pre>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                    Generated code preview
+                  </p>
+                  <canvas
+                    ref={previewCanvasRef}
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                    style={{ minHeight: 200 }}
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    This canvas is rendered by replaying the parsed `fillStyle`/`fillRect` commands from the generated code.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </div>
