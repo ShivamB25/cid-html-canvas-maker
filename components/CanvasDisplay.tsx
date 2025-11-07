@@ -4,7 +4,7 @@ import { useEffect, useRef, RefObject } from 'react'
 
 interface CanvasDisplayProps {
   imageUrl: string
-  canvasRef: RefObject<HTMLCanvasElement>
+  canvasRef: RefObject<HTMLCanvasElement | null>
   className?: string
 }
 
